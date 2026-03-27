@@ -6,6 +6,7 @@ Drop-in documentation structure, templates, and AI agent instructions for any pr
 
 ```
 docs/
+  .prompts/          # Reusable prompt templates for common documentation workflows
   .references/       # Normative rules: output contracts, workflows, capability matrix
   .templates/         # Reusable document templates for PRDs, plans, and backlogs
   designs/            # Architectural decisions and design rationale (ADRs)
@@ -17,6 +18,8 @@ AGENTS.md             # Root agent instructions (multi-agent compatible)
 ```
 
 Each directory includes its own `CLAUDE.md` and `AGENTS.md` files with context-specific instructions for AI agents generating documentation within that directory.
+
+The hidden support directories under `docs/` each serve a different role: `docs/.references/` contains the authoritative rules and workflows, `docs/.templates/` contains document structure starting points, and `docs/.prompts/` contains reusable prompt text for kicking off common documentation tasks.
 
 ## Quick Start
 
@@ -88,6 +91,7 @@ Additional subsystem documents (`05-*` through `99-*`) are added as needed for f
 
 ## Customization
 
+- **Prompt templates** (`docs/.prompts/`) -- Add or refine reusable prompts for common documentation workflows and handoff tasks.
 - **Templates** (`docs/.templates/`) -- Modify these to change the structure of generated documents.
 - **Output contract** (`docs/.references/output-contract.md`) -- Adjust naming conventions, required sections, and structural rules.
 - **Agent instructions** (`CLAUDE.md`, `AGENTS.md`, and per-directory variants) -- Tailor agent behavior to your team's conventions.
