@@ -21,16 +21,22 @@ Each directory includes its own `CLAUDE.md` and `AGENTS.md` files with context-s
 
 The hidden support directories under `docs/` each serve a different role: `docs/.references/` contains the authoritative rules and workflows, `docs/.templates/` contains document structure starting points, and `docs/.prompts/` contains reusable prompt text for kicking off common documentation tasks.
 
+This repo also includes maintainer-only validation tooling for the instruction routers. That tooling is documented below and is intentionally excluded from the downstream copy commands.
+
 ## Quick Start
 
-### Copy everything (except this README) into an existing project
+### Copy the drop-in docs files into an existing project
 
 Using `curl` + `tar` (no clone required):
 
 ```bash
 # From your project root
 curl -sL https://github.com/<owner>/starter-docs/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 --exclude='*/README.md'
+  | tar -xz --strip-components=1 \
+    --exclude='*/README.md' \
+    --exclude='*/justfile' \
+    --exclude='*/scripts' \
+    --exclude='*/scripts/*'
 ```
 
 Using `git clone` + `rsync`:
@@ -38,7 +44,12 @@ Using `git clone` + `rsync`:
 ```bash
 # Clone into a temporary directory, copy contents, clean up
 git clone --depth 1 https://github.com/<owner>/starter-docs.git /tmp/starter-docs
-rsync -av --exclude='README.md' --exclude='.git' /tmp/starter-docs/ ./
+rsync -av \
+  --exclude='README.md' \
+  --exclude='justfile' \
+  --exclude='scripts/' \
+  --exclude='.git' \
+  /tmp/starter-docs/ ./
 rm -rf /tmp/starter-docs
 ```
 
@@ -46,7 +57,11 @@ Using `degit` (if installed):
 
 ```bash
 npx degit <owner>/starter-docs ./tmp-starter-docs
-rsync -av --exclude='README.md' ./tmp-starter-docs/ ./
+rsync -av \
+  --exclude='README.md' \
+  --exclude='justfile' \
+  --exclude='scripts/' \
+  ./tmp-starter-docs/ ./
 rm -rf ./tmp-starter-docs
 ```
 
@@ -58,6 +73,8 @@ After copying, your project will have:
 
 - **`docs/`** -- A structured documentation directory with templates and agent instructions ready to use.
 - **`CLAUDE.md` / `AGENTS.md`** -- Root-level agent instructions that point AI agents to the documentation system. Merge these with any existing agent instructions in your project.
+
+The copy commands above intentionally exclude this repo's maintainer-only `justfile` and `scripts/check-instruction-routers.sh`.
 
 ## How It Works
 
@@ -95,6 +112,26 @@ Additional subsystem documents (`05-*` through `99-*`) are added as needed for f
 - **Templates** (`docs/.templates/`) -- Modify these to change the structure of generated documents.
 - **Output contract** (`docs/.references/output-contract.md`) -- Adjust naming conventions, required sections, and structural rules.
 - **Agent instructions** (`CLAUDE.md`, `AGENTS.md`, and per-directory variants) -- Tailor agent behavior to your team's conventions.
+
+## Maintainer Checks
+
+This repo includes a maintainer-only validation script for the instruction routers:
+
+- `scripts/check-instruction-routers.sh` verifies that `AGENTS.md` and `CLAUDE.md` pairs stay identical, stay within the router line budgets, and do not reintroduce heavy headings like `## Files` or `## Templates`.
+
+Run it after editing instruction routers and before committing those changes:
+
+```bash
+just check-instruction-routers
+```
+
+Fallback if `just` is unavailable:
+
+```bash
+bash scripts/check-instruction-routers.sh
+```
+
+This check is for maintainers of this template repo. It is not part of the downstream documentation workflow and is intentionally not copied into consumer projects.
 
 ## License
 
