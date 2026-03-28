@@ -1,6 +1,6 @@
 # Starter Docs
 
-Drop-in documentation structure, templates, and AI agent instructions for any project. Copy the contents of this repo into your project to get a ready-made system for generating PRDs, implementation backlogs, architectural designs, and plans -- all with consistent naming conventions and enforced section contracts.
+Drop-in documentation structure, templates, and AI agent instructions for any project. Install the system with `npx starter-docs` to get a ready-made setup for generating PRDs, implementation backlogs, architectural designs, and plans with consistent naming conventions and enforced section contracts.
 
 ## What's Included
 
@@ -25,7 +25,67 @@ This repo also includes maintainer-only validation tooling for the instruction r
 
 ## Quick Start
 
-### Copy the drop-in docs files into an existing project
+### Install with `npx` (recommended)
+
+From your project root:
+
+```bash
+npx starter-docs
+```
+
+The installer starts in full-install mode:
+
+- all capabilities are selected by default: `designs`, `plans`, `prd`, and `work`
+- optional assets are selected by default: prompt starters, all valid templates, all valid references, and both `AGENTS.md` and `CLAUDE.md`
+- you opt out of anything you do not want
+
+The capability graph is dependency-aware:
+
+- `designs` is independent
+- `plans` is independent
+- `prd` requires `plans`
+- `work` requires both `plans` and `prd`
+
+If you opt out of a prerequisite, downstream capabilities stay selected for later but become disabled until the prerequisite is turned back on.
+
+Useful non-interactive forms:
+
+```bash
+# Install everything with defaults
+npx starter-docs init --yes
+
+# Full install except work docs
+npx starter-docs init --yes --no-work
+
+# Re-run updates using the existing manifest and selections
+npx starter-docs update
+
+# Reconfigure an existing install
+npx starter-docs update --reconfigure
+
+# Preview changes without writing files
+npx starter-docs init --dry-run
+```
+
+### What the installer writes
+
+The installer writes only the files that match your selected profile:
+
+- visible capability directories such as `docs/designs/`, `docs/plans/`, `docs/prd/`, and `docs/work/`
+- only the prompt starters, templates, and reference files that are valid for that profile
+- generated instruction routers and support files that avoid pointing agents at missing directories or prompt files
+- `docs/.starter-docs/manifest.json`, which records the installed profile and managed file hashes for later updates
+
+Update behavior is intentionally non-destructive:
+
+- unchanged managed files are updated in place
+- locally modified managed files are skipped
+- unmanaged conflicting files are never overwritten
+- proposed replacements are staged under `docs/.starter-docs/conflicts/<run-id>/`
+
+### Copy the drop-in docs files manually
+
+If you do not want to use the installer, you can still copy the template files directly.
 
 Using `curl` + `tar` (no clone required):
 
@@ -69,10 +129,11 @@ rm -rf ./tmp-starter-docs
 
 ### What you'll get
 
-After copying, your project will have:
+After installing or copying, your project will have:
 
 - **`docs/`** -- A structured documentation directory with templates and agent instructions ready to use.
-- **`CLAUDE.md` / `AGENTS.md`** -- Root-level agent instructions that point AI agents to the documentation system. Merge these with any existing agent instructions in your project.
+- **`CLAUDE.md` / `AGENTS.md`** -- Root-level agent instructions that point AI agents to the documentation system. The installer can generate these to match the selected capability profile and will not overwrite conflicting files automatically.
+- **`docs/.starter-docs/manifest.json`** -- Present when you use the CLI installer. Tracks the selected profile and managed file hashes so `update` stays narrow and safe.
 
 The copy commands above intentionally exclude this repo's maintainer-only `justfile` and `scripts/check-instruction-routers.sh`.
 
@@ -112,6 +173,8 @@ Additional subsystem documents (`05-*` through `99-*`) are added as needed for f
 - **Templates** (`docs/.templates/`) -- Modify these to change the structure of generated documents.
 - **Output contract** (`docs/.references/output-contract.md`) -- Adjust naming conventions, required sections, and structural rules.
 - **Agent instructions** (`CLAUDE.md`, `AGENTS.md`, and per-directory variants) -- Tailor agent behavior to your team's conventions.
+
+If you used the installer, rerun `npx starter-docs update --reconfigure` after changing which capability families you want managed locally. The installer will regenerate profile-aware router files so they stay aligned with the directories you keep.
 
 ## Maintainer Checks
 
