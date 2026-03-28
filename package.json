@@ -29,5 +29,9 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@clack/core": "^1.1.0",
+    "@clack/prompts": "^1.1.0"
   }
 }

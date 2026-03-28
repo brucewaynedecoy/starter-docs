@@ -8,10 +8,15 @@ export type InstructionKind = (typeof INSTRUCTION_KINDS)[number];
 
 export type TemplatesMode = "required" | "all";
 export type ReferencesMode = "required" | "all";
+export type InstructionConflictResolution = "update" | "overwrite" | "skip";
+export type InstructionConflictResolutions = Partial<
+  Record<string, InstructionConflictResolution>
+>;
 export type ActionType =
   | "create"
   | "noop"
   | "update"
+  | "update-conflict"
   | "skip-conflict"
   | "remove-managed"
   | "generate";
@@ -59,6 +64,12 @@ export interface InstallManifest {
   selections: InstallSelections;
   effectiveCapabilities: Capability[];
   files: Record<string, ManifestFileEntry>;
+}
+
+export interface InstructionConflict {
+  relativePath: string;
+  instructionKind: InstructionKind;
+  reason: string;
 }
 
 export interface PlannedAction {

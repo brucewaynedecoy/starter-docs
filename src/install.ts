@@ -5,12 +5,16 @@ import { createInstallPlan } from "./planner";
 import { resolveInstallProfile } from "./profile";
 import type {
   ApplyResult,
+  InstructionConflict,
+  InstructionConflictResolutions,
+  InstructionKind,
   InstallManifest,
   InstallPlan,
   InstallSelections,
   PackageMeta,
   PlannedAction,
 } from "./types";
+import { INSTRUCTION_KINDS } from "./types";
 import {
   ensureParentDir,
   pruneEmptyDirectories,
@@ -24,6 +28,7 @@ export function planInstall(options: {
   selections: InstallSelections;
   existingManifest: InstallManifest | null;
   packageMeta?: PackageMeta;
+  instructionConflictResolutions?: InstructionConflictResolutions;
 }): InstallPlan {
   const packageMeta = options.packageMeta ?? readPackageMeta();
   const profile = resolveInstallProfile(options.selections);
@@ -33,6 +38,28 @@ export function planInstall(options: {
     packageMeta,
     profile,
     existingManifest: options.existingManifest,
+    instructionConflictResolutions: options.instructionConflictResolutions,
+  });
+}
+
+export function findInstructionConflicts(plan: InstallPlan): InstructionConflict[] {
+  return plan.actions.flatMap((action) => {
+    if (action.type !== "skip-conflict" || typeof action.content !== "string" || !action.reason) {
+      return [];
+    }
+
+    const instructionKind = getInstructionKindForPath(action.relativePath);
+    if (!instructionKind) {
+      return [];
+    }
+
+    return [
+      {
+        relativePath: action.relativePath,
+        instructionKind,
+        reason: action.reason,
+      },
+    ];
   });
 }
 
@@ -97,6 +124,15 @@ function applyAction(options: {
       nextFiles[action.relativePath] = desiredEntry;
       return;
     }
+    case "update-conflict": {
+      if (typeof action.content !== "string") {
+        throw new Error(`Missing content for ${action.type} action on ${action.relativePath}.`);
+      }
+
+      writeTextFile(absolutePath, action.content);
+      delete nextFiles[action.relativePath];
+      return;
+    }
     case "noop": {
       if (desiredEntry) {
         nextFiles[action.relativePath] = desiredEntry;
@@ -130,4 +166,11 @@ function applyAction(options: {
       throw new Error(`Unhandled action type: ${exhaustiveCheck}`);
     }
   }
+}
+
+function getInstructionKindForPath(relativePath: string): InstructionKind | null {
+  const basename = path.posix.basename(relativePath);
+  return INSTRUCTION_KINDS.includes(basename as InstructionKind)
+    ? (basename as InstructionKind)
+    : null;
 }

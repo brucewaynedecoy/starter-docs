@@ -5,9 +5,13 @@ import type {
   InstallManifest,
   InstallPlan,
   InstallProfile,
+  InstructionConflictResolution,
+  InstructionConflictResolutions,
+  InstructionKind,
   PackageMeta,
   PlannedAction,
 } from "./types";
+import { INSTRUCTION_KINDS } from "./types";
 import { hashText, readTextFile, relativePathToTarget, createRunId } from "./utils";
 
 export function createInstallPlan(options: {
@@ -15,8 +19,15 @@ export function createInstallPlan(options: {
   packageMeta: PackageMeta;
   profile: InstallProfile;
   existingManifest: InstallManifest | null;
+  instructionConflictResolutions?: InstructionConflictResolutions;
 }): InstallPlan {
-  const { targetDir, packageMeta, profile, existingManifest } = options;
+  const {
+    targetDir,
+    packageMeta,
+    profile,
+    existingManifest,
+    instructionConflictResolutions,
+  } = options;
   const desiredAssets = getDesiredAssets(profile);
   const desiredFiles = Object.fromEntries(
     desiredAssets.map((asset) => [
@@ -66,6 +77,33 @@ export function createInstallPlan(options: {
         sourceId: asset.sourceId,
         content: asset.content,
         contentHash: desiredHash,
+      });
+      continue;
+    }
+
+    const conflictResolution = getInstructionConflictResolution(
+      asset.relativePath,
+      instructionConflictResolutions,
+    );
+    if (conflictResolution === "overwrite") {
+      actions.push({
+        type: asset.assetClass === "buildable" ? "generate" : "update",
+        relativePath: asset.relativePath,
+        sourceId: asset.sourceId,
+        content: asset.content,
+        contentHash: desiredHash,
+        reason: "Overwrite existing conflicting agent instructions.",
+      });
+      continue;
+    }
+
+    if (conflictResolution === "update") {
+      actions.push({
+        type: "update-conflict",
+        relativePath: asset.relativePath,
+        sourceId: asset.sourceId,
+        content: mergeInstructionConflictContent(currentContent, asset.content),
+        reason: "Append generated instructions to the end of the existing file.",
       });
       continue;
     }
@@ -130,4 +168,40 @@ export function createInstallPlan(options: {
     desiredFiles,
     conflictsRunId,
   };
+}
+
+function getInstructionConflictResolution(
+  relativePath: string,
+  instructionConflictResolutions?: InstructionConflictResolutions,
+): InstructionConflictResolution | null {
+  const instructionKind = getInstructionKindForPath(relativePath);
+  if (!instructionKind) {
+    return null;
+  }
+
+  return instructionConflictResolutions?.[relativePath] ?? null;
+}
+
+function getInstructionKindForPath(relativePath: string): InstructionKind | null {
+  const basename = path.posix.basename(relativePath);
+  return INSTRUCTION_KINDS.includes(basename as InstructionKind)
+    ? (basename as InstructionKind)
+    : null;
+}
+
+function mergeInstructionConflictContent(currentContent: string, desiredContent: string): string {
+  if (currentContent.includes(desiredContent)) {
+    return currentContent;
+  }
+
+  if (currentContent.length === 0) {
+    return desiredContent;
+  }
+
+  const normalizedCurrent = currentContent.endsWith("\n")
+    ? currentContent
+    : `${currentContent}\n`;
+  const separator = normalizedCurrent.trim().length > 0 ? "\n" : "";
+
+  return `${normalizedCurrent}${separator}${desiredContent}`;
 }

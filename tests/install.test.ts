@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { applyInstallPlan, planInstall } from "../src/install";
 import { loadManifest } from "../src/manifest";
 import { defaultSelections } from "../src/profile";
+import { readPackageFile } from "../src/utils";
 import { cleanupTempDir, collectFiles, collectMarkdownContents, createTempDir } from "./helpers";
 
 function installWithSelections(
@@ -194,6 +195,76 @@ describe("installer integration", () => {
       );
       expect(manifest.files["AGENTS.md"]).toBeUndefined();
       expect(manifest.files["docs/AGENTS.md"]).toBeUndefined();
+    } finally {
+      cleanupTempDir(targetDir);
+    }
+  });
+
+  test("appends generated instructions when updating a conflicting instruction file", () => {
+    const targetDir = createTempDir();
+    try {
+      writeFileSync(path.join(targetDir, "AGENTS.md"), "custom root agents\n", "utf8");
+
+      const selections = defaultSelections();
+      const existingManifest = loadManifest(targetDir);
+      const plan = planInstall({
+        targetDir,
+        selections,
+        existingManifest,
+        instructionConflictResolutions: {
+          "AGENTS.md": "update",
+        },
+      });
+
+      expect(plan.actions.find((action) => action.relativePath === "AGENTS.md")).toMatchObject({
+        type: "update-conflict",
+      });
+
+      const result = applyInstallPlan({
+        targetDir,
+        plan,
+        existingManifest,
+      });
+
+      const merged = readFileSync(path.join(targetDir, "AGENTS.md"), "utf8");
+      expect(merged).toContain("custom root agents\n");
+      expect(merged).toContain(readPackageFile("AGENTS.md"));
+      expect(result.manifest.files["AGENTS.md"]).toBeUndefined();
+    } finally {
+      cleanupTempDir(targetDir);
+    }
+  });
+
+  test("overwrites conflicting instruction files when overwrite is selected", () => {
+    const targetDir = createTempDir();
+    try {
+      writeFileSync(path.join(targetDir, "AGENTS.md"), "custom root agents\n", "utf8");
+
+      const selections = defaultSelections();
+      const existingManifest = loadManifest(targetDir);
+      const plan = planInstall({
+        targetDir,
+        selections,
+        existingManifest,
+        instructionConflictResolutions: {
+          "AGENTS.md": "overwrite",
+        },
+      });
+
+      expect(plan.actions.find((action) => action.relativePath === "AGENTS.md")).toMatchObject({
+        reason: "Overwrite existing conflicting agent instructions.",
+      });
+
+      const result = applyInstallPlan({
+        targetDir,
+        plan,
+        existingManifest,
+      });
+
+      expect(readFileSync(path.join(targetDir, "AGENTS.md"), "utf8")).toBe(
+        readPackageFile("AGENTS.md"),
+      );
+      expect(result.manifest.files["AGENTS.md"]).toBeDefined();
     } finally {
       cleanupTempDir(targetDir);
     }

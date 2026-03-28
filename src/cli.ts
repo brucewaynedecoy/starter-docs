@@ -1,7 +1,7 @@
-import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
-import { applyInstallPlan, planInstall } from "./install";
+import { confirm, isCancel } from "@clack/prompts";
+import { applyInstallPlan, findInstructionConflicts, planInstall } from "./install";
 import { loadManifest } from "./manifest";
 import { defaultSelections, hasEffectiveCapabilities } from "./profile";
 import type {
@@ -12,7 +12,11 @@ import type {
   TemplatesMode,
 } from "./types";
 import { readPackageMeta } from "./utils";
-import { type PromptIO, runSelectionWizard } from "./wizard";
+import {
+  promptForInstructionConflictResolutions,
+  promptForUpdateWizardAction,
+  runSelectionWizard,
+} from "./wizard";
 
 type Command = "init" | "update";
 
@@ -58,85 +62,132 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
   }
 
   const interactive = !parsed.yes;
-  const promptIo = interactive ? createConsolePromptIO() : null;
+  if (interactive && (!input.isTTY || !output.isTTY)) {
+    throw new Error("Interactive prompts require a TTY. Use --yes for non-interactive runs.");
+  }
 
-  try {
-    let selections = resolveSelections({
-      parsed,
-      command,
-      existingManifest,
-    });
+  let selections = resolveSelections({
+    parsed,
+    command,
+    existingManifest,
+  });
+  let skipApplyConfirm = false;
 
-    if (promptIo) {
-      if (command === "init") {
-        const wizardSelections = await runSelectionWizard(
-          promptIo,
-          selections,
-          "Configure starter-docs install. Press Enter to accept each default.",
-        );
-        if (!wizardSelections) {
-          output.write("Installer cancelled.\n");
-          return;
-        }
-        selections = wizardSelections;
-      } else if (parsed.reconfigure || (!parsed.command && !hasSelectionOverrides(parsed) && (await promptIo.confirm("Reconfigure selections before updating? [y/N]", false)))) {
-        const wizardSelections = await runSelectionWizard(
-          promptIo,
-          selections,
-          "Reconfigure starter-docs install. Press Enter to keep each current selection.",
-        );
-        if (!wizardSelections) {
-          output.write("Installer cancelled.\n");
-          return;
-        }
-        selections = wizardSelections;
-      }
-    }
-
-    const plan = planInstall({
-      targetDir,
-      selections,
-      existingManifest,
-      packageMeta: readPackageMeta(),
-    });
-
-    if (!hasEffectiveCapabilities(plan.profile)) {
-      throw new Error("At least one capability must remain enabled.");
-    }
-
-    printPlan(plan.actions);
-
-    if (parsed.dryRun) {
-      output.write("\nDry run complete.\n");
-      return;
-    }
-
-    if (promptIo) {
-      const proceed = await promptIo.confirm("Apply these changes? [Y/n]", true);
-      if (!proceed) {
+  if (interactive) {
+    if (command === "init") {
+      const wizardSelections = await runSelectionWizard({
+        initialSelections: selections,
+        introTitle: "Let's configure your starter-docs install",
+      });
+      if (!wizardSelections) {
         output.write("Installer cancelled.\n");
         return;
       }
-    }
+      selections = wizardSelections;
+      skipApplyConfirm = true;
+    } else if (parsed.reconfigure) {
+      const wizardSelections = await runSelectionWizard({
+        initialSelections: selections,
+        introTitle: "Let's reconfigure your starter-docs install",
+      });
+      if (!wizardSelections) {
+        output.write("Installer cancelled.\n");
+        return;
+      }
+      selections = wizardSelections;
+      skipApplyConfirm = true;
+    } else if (!parsed.command && !hasSelectionOverrides(parsed)) {
+      const updateAction = await promptForUpdateWizardAction();
+      if (!updateAction) {
+        output.write("Installer cancelled.\n");
+        return;
+      }
 
-    const applied = applyInstallPlan({
-      targetDir,
-      plan,
-      existingManifest,
+      const wizardSelections = await runSelectionWizard({
+        initialSelections: selections,
+        introTitle:
+          updateAction === "update-existing"
+            ? "Review your current starter-docs install"
+            : "Let's reconfigure your starter-docs install",
+        startStep: updateAction === "update-existing" ? "review" : "capabilities",
+      });
+      if (!wizardSelections) {
+        output.write("Installer cancelled.\n");
+        return;
+      }
+      selections = wizardSelections;
+      skipApplyConfirm = true;
+    }
+  }
+
+  let plan = planInstall({
+    targetDir,
+    selections,
+    existingManifest,
+    packageMeta: readPackageMeta(),
+  });
+
+  if (interactive) {
+    const instructionConflicts = findInstructionConflicts(plan);
+    if (instructionConflicts.length > 0) {
+      const instructionConflictResolutions =
+        await promptForInstructionConflictResolutions(instructionConflicts);
+      if (!instructionConflictResolutions) {
+        output.write("Installer cancelled.\n");
+        return;
+      }
+
+      plan = planInstall({
+        targetDir,
+        selections,
+        existingManifest,
+        packageMeta: readPackageMeta(),
+        instructionConflictResolutions,
+      });
+    }
+  }
+
+  if (!hasEffectiveCapabilities(plan.profile)) {
+    throw new Error("At least one capability must remain enabled.");
+  }
+
+  printPlan(plan.actions);
+
+  if (parsed.dryRun) {
+    output.write("\nDry run complete.\n");
+    return;
+  }
+
+  if (interactive && !skipApplyConfirm) {
+    const proceed = await confirm({
+      message: "Apply these changes?",
+      initialValue: true,
+      active: "Yes",
+      inactive: "No",
+      withGuide: true,
     });
 
-    output.write(
-      `\nInstalled starter-docs ${applied.manifest.packageVersion} into ${targetDir}.\n`,
-    );
-    output.write(`Manifest: ${path.join(targetDir, "docs/.starter-docs/manifest.json")}\n`);
-    if (applied.conflictFiles.length > 0) {
-      output.write("Conflicts were staged for manual review:\n");
-      for (const conflictFile of applied.conflictFiles) {
-        output.write(`- ${conflictFile}\n`);
-      }
+    if (isCancel(proceed) || !proceed) {
+      output.write("Installer cancelled.\n");
+      return;
     }
-  } finally {
-    promptIo?.close();
+  }
+
+  const applied = applyInstallPlan({
+    targetDir,
+    plan,
+    existingManifest,
+  });
+
+  output.write(
+    `\nInstalled starter-docs ${applied.manifest.packageVersion} into ${targetDir}.\n`,
+  );
+  output.write(`Manifest: ${path.join(targetDir, "docs/.starter-docs/manifest.json")}\n`);
+  if (applied.conflictFiles.length > 0) {
+    output.write("Conflicts were staged for manual review:\n");
+    for (const conflictFile of applied.conflictFiles) {
+      output.write(`- ${conflictFile}\n`);
+    }
   }
 }
 
@@ -309,8 +360,14 @@ function printPlan(actions: PlannedAction[]): void {
 
   output.write("\nPlanned changes:\n");
   for (const action of nonNoop) {
+    const actionLabel =
+      action.type === "update-conflict"
+        ? "update"
+        : action.reason === "Overwrite existing conflicting agent instructions."
+          ? "overwrite"
+          : action.type;
     output.write(
-      `- ${action.type}: ${action.relativePath}${action.reason ? ` (${action.reason})` : ""}\n`,
+      `- ${actionLabel}: ${action.relativePath}${action.reason ? ` (${action.reason})` : ""}\n`,
     );
   }
   output.write(`- noop: ${noopCount} file(s)\n`);
@@ -324,55 +381,4 @@ Usage:
   starter-docs update [--target <dir>] [--dry-run] [--yes]
   starter-docs update --reconfigure [selection flags]
 \n`);
-}
-
-interface CloseablePromptIO extends PromptIO {
-  close(): void;
-}
-
-function createConsolePromptIO(): CloseablePromptIO {
-  if (!input.isTTY || !output.isTTY) {
-    throw new Error("Interactive prompts require a TTY. Use --yes for non-interactive runs.");
-  }
-
-  const rl = createInterface({ input, output });
-
-  return {
-    info(message: string) {
-      output.write(`${message}\n`);
-    },
-    async confirm(question: string, defaultValue: boolean) {
-      while (true) {
-        const answer = (await rl.question(`${question} `)).trim().toLowerCase();
-        if (answer.length === 0) {
-          return defaultValue;
-        }
-        if (answer === "y" || answer === "yes") {
-          return true;
-        }
-        if (answer === "n" || answer === "no") {
-          return false;
-        }
-      }
-    },
-    async choose<T extends string>(
-      question: string,
-      options: readonly T[],
-      defaultValue: T,
-    ): Promise<T> {
-      while (true) {
-        const answer = (await rl.question(`${question} `)).trim().toLowerCase();
-        if (answer.length === 0) {
-          return defaultValue;
-        }
-        const normalized = options.find((option) => option.toLowerCase() === answer);
-        if (normalized) {
-          return normalized;
-        }
-      }
-    },
-    close() {
-      rl.close();
-    },
-  };
 }
